@@ -29,7 +29,7 @@ spec:
           - "-v=4"
         env:
           - name: KCP_SYNCER_IMAGE
-            value: ghcr.io/kcp-dev/kcp/syncer:release-0.5
+            value: ghcr.io/kcp-dev/kcp/syncer:v0.6.1
         volumeMounts:
         - name: kcp-admin-kubeconfig
           mountPath: "/var/kcp-ocm/kcp"
