@@ -31,7 +31,7 @@ spec:
           - name: KCP_SYNCER_IMAGE
             value: ghcr.io/kcp-dev/kcp/syncer:main
           - name: KCP_INSTANCE
-            value: kcp-unstable
+            value: kcp-co-unstable
           - name: KCP_SYNCER_CRONJOB_SCHEDULE
             value: "0 * * * *"
         volumeMounts:

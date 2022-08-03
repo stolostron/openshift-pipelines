@@ -1,7 +1,7 @@
 apiVersion: cluster.open-cluster-management.io/v1alpha1
 kind: HypershiftDeployment
 metadata:
-  name: kcp-unstable
+  name: kcp-co-unstable
   namespace: local-cluster
 spec:
   hostingCluster: local-cluster
@@ -25,7 +25,7 @@ spec:
     platform:
       type: AWS
     pullSecret:
-      name: kcp-unstable-pull-secret
+      name: kcp-co-unstable-pull-secret
     release:
       image: quay.io/openshift-release-dev/ocp-release:4.10.17-x86_64
     services:

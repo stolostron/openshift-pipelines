@@ -296,14 +296,14 @@ spec:
       eval "$_LOGIN_CMD"
 
       echo "Applying Hypershiftdeployment ..."
-      oc apply -f samples/kcp-co-pipelines/resources/hypershift/aws-hypershiftdeployment.yaml -n local-cluster
-      oc apply -f samples/kcp-co-pipelines/resources/hypershift/azr-hypershiftdeployment.yaml -n local-cluster
+      # oc apply -f samples/kcp-co-pipelines/resources/hypershift/aws-hypershiftdeployment.yaml -n local-cluster
+      # oc apply -f samples/kcp-co-pipelines/resources/hypershift/azr-hypershiftdeployment.yaml -n local-cluster
       oc apply -f samples/kcp-co-pipelines/resources/hypershift/kcp-unstable-hypershiftdeployment.yaml -n local-cluster
       echo "Hypershiftdeployments applied"
 
-      validateHD aws-hd
-      validateHD azure-hd
-      validateHD kcp-unstable
+      # validateHD aws-hd
+      # validateHD azure-hd
+      validateHD kcp-co-unstable
 
       echo "Hypershiftdeployments are ready"
       exit 0
