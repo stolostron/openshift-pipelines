@@ -1,0 +1,51 @@
+apiVersion: cluster.open-cluster-management.io/v1alpha1
+kind: HypershiftDeployment
+metadata:
+  name: azure-hd
+  namespace: local-cluster
+spec:
+  hostingCluster: local-cluster
+  hostingNamespace: local-cluster
+  hostedClusterSpec:
+    imageContentSources:
+    - source: registry.redhat.io/rhacm2
+      mirrors:
+      - quay.io:443/acm-d
+    - source: registry.redhat.io/multicluster-engine
+      mirrors:
+      - quay.io:443/acm-d
+    - source: registry.access.redhat.com/openshift4/ose-oauth-proxy
+      mirrors:
+      - registry.redhat.io/openshift4/ose-oauth-proxy
+    networking:
+      machineCIDR: 10.0.0.0/16
+      networkType: OpenShiftSDN
+      podCIDR: 10.132.0.0/14
+      serviceCIDR: 172.31.0.0/16
+    platform:
+      type: Azure
+    pullSecret:
+      name: azure-hd-pull-secret
+    release:
+      image: quay.io/openshift-release-dev/ocp-release:4.10.17-x86_64
+    services:
+    - service: APIServer
+      servicePublishingStrategy:
+        type: LoadBalancer
+    - service: OAuthServer
+      servicePublishingStrategy:
+        type: Route
+    - service: Konnectivity
+      servicePublishingStrategy:
+        type: Route
+    - service: Ignition
+      servicePublishingStrategy:
+        type: Route
+    sshKey: {}
+  infrastructure:
+    cloudProvider:
+      name: azr-credentials
+    configure: True
+    platform:
+      azure:
+        location: eastus

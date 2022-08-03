@@ -1,0 +1,451 @@
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: deploy-kcp-co-hub-checkout-cluster
+spec:
+  params:
+  - name: clusterPoolName
+    default: kcp-sgs-hubs
+    description: The name of the clusterpool to use
+    type: string
+  - name: clusterName
+    default: demo-claim
+    description: The name of the clusterclaim to use
+    type: string
+  results:
+  - name: username
+    description: Username for the claimed cluster.
+  - name: password
+    description: Password for the claimed cluster.  
+  - name: api
+    description: API URL of the claimed cluster.
+  - name: imagePullSecret
+    description: The imagePullSecret on the hub cluster.
+  steps:
+  - name: checkout-cluster
+    args:
+    - |-
+      #!/bin/bash
+      set -e
+      
+      _TEMPLATE="apiVersion: hive.openshift.io/v1
+      kind: ClusterClaim
+      metadata:
+        annotations:
+          cluster.open-cluster-management.io/createmanagedcluster: 'false'
+        name: $(inputs.params.clusterName)
+      spec:
+        clusterPoolName: $(inputs.params.clusterPoolName)
+        subjects:
+        - apiGroup: rbac.authorization.k8s.io
+          kind: Group
+          name: idp-for-the-masses
+        - apiGroup: rbac.authorization.k8s.io
+          kind: Group
+          name: system:serviceaccounts:managed-services"
+
+      echo "$_TEMPLATE" | oc apply -f -
+
+      oc wait --for=condition=ClusterRunning clusterclaim.hive/$(inputs.params.clusterName) --timeout=90m
+
+      NAMESPACE=$(oc get clusterclaim.hive $(inputs.params.clusterName) -o=jsonpath='{.spec.namespace}')
+      CD_INFO=$(oc get clusterdeployment ${NAMESPACE} -n ${NAMESPACE} -o yaml -o=jsonpath='{.spec.clusterMetadata.adminPasswordSecretRef.name}')
+      KUBECONFIG_SECRET=$(oc get cd ${NAMESPACE} -n ${NAMESPACE} -o yaml | yq eval '.spec.clusterMetadata.adminKubeconfigSecretRef.name' -)
+
+      oc patch clusterdeployment ${NAMESPACE} -n ${NAMESPACE} --type json -p '[{"op": "add", "path": "/metadata/labels/hibernate", "value": "skip"}]'
+
+      _USERNAME=$(oc get secret ${CD_INFO} -n ${NAMESPACE} -o jsonpath='{.data.username}' | base64 -d )
+      _PASSWORD=$(oc get secret ${CD_INFO} -n ${NAMESPACE} -o jsonpath='{.data.password}' | base64 -d  )
+      _API_URL=$(oc get cd ${NAMESPACE} -n ${NAMESPACE} -o jsonpath='{.status.apiURL}' )
+      
+      oc get secret -n ${NAMESPACE} ${KUBECONFIG_SECRET} -o yaml | yq eval '.data.kubeconfig' - | base64 -d > $(inputs.params.clusterName)-kubeconfig.yaml
+      
+      _IMAGE_PULL_SECRET=$(oc get secret kcp-sgs-pipelines-multiclusterhub-operator-pull-secret -o yaml | yq eval '.data.".dockerconfigjson"' -)
+
+      mkdir -p /workspace/$(inputs.params.clusterName)/
+      echo "$_USERNAME" > /workspace/$(inputs.params.clusterName)/USERNAME
+      echo "$_PASSWORD" > /workspace/$(inputs.params.clusterName)/PASSWORD
+      echo "$_API_URL" > /workspace/$(inputs.params.clusterName)/API_URL
+      echo "$_IMAGE_PULL_SECRET" > /workspace/$(inputs.params.clusterName)/IMAGE_PULL_SECRET
+
+      echo "$_IMAGE_PULL_SECRET" | tr -d '\n' > $(results.imagePullSecret.path)
+
+      echo "API URL of claimed cluster: $_API_URL"
+      echo "Password for the claimed cluster: $_PASSWORD"
+      echo ""
+      echo "Clusterclaim successfully checked out"
+      exit 0
+    command:
+    - /bin/bash
+    - -c
+    image: quay.io/acm-sre/ocm-utils:latest
+    resources: {}
+    workingDir: /workspace/source
+  - name: login
+    args:
+    - |-
+      #!/bin/bash
+      set -e
+
+      export _USERNAME=$(cat /workspace/$(inputs.params.clusterName)/USERNAME)
+      export _PASSWORD=$(cat /workspace/$(inputs.params.clusterName)/PASSWORD)
+      export _API_URL=$(cat /workspace/$(inputs.params.clusterName)/API_URL)
+      export _IMAGE_PULL_SECRET=$(cat /workspace/$(inputs.params.clusterName)/IMAGE_PULL_SECRET)
+      
+      LOGINCMD="oc login ${_API_URL} -u ${_USERNAME} -p ${_PASSWORD} --insecure-skip-tls-verify=true"
+      eval $LOGINCMD
+      
+      echo $LOGINCMD > login.sh
+      echo $LOGINCMD
+
+    command:
+    - /bin/bash
+    - -c
+    image: quay.io/acm-sre/ocm-utils:latest
+    resources: {}
+    workingDir: /workspace/source
+  workspaces:
+  - name: source
+
+---
+
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: deploy-kcp-co-hub-ensure-acm
+spec:
+  params:
+  - name: imagePullSecret
+    default: ""
+    description: The image pull secret used to deploy the catalogsources. Copied from clusterPoolNamespace
+    type: string
+  steps:
+  - name: ensure-prereqs
+    args:
+    - |-
+      #!/bin/bash
+      set -e
+
+      KCP_KUBECONFIG_STABLE=$(oc get secret kcp-sgs-pipelines-secrets-config -o yaml | yq eval '.data.kcpKubeConfigStable' -)
+      KCP_KUBECONFIG_UNSTABLE=$(oc get secret kcp-sgs-pipelines-secrets-config -o yaml | yq eval '.data.kcpKubeConfigUnstable' -)
+
+      _LOGIN_CMD=$(cat login.sh)
+      eval "$_LOGIN_CMD"
+
+      oc project
+
+      echo "Creating Namespace..."
+      oc create namespace open-cluster-management --dry-run=client -o yaml | oc apply -f -
+
+      KCP_KUBECONFIG_STABLE=$KCP_KUBECONFIG_STABLE yq eval '.data."admin.kubeconfig" = env(KCP_KUBECONFIG_STABLE)' samples/kcp-co-pipelines/resources/singapore-secret.yaml | oc apply -n open-cluster-management -f -
+      
+      oc create namespace singapore-unstable --dry-run=client -o yaml | oc apply -f -
+
+      KCP_KUBECONFIG_UNSTABLE=$KCP_KUBECONFIG_UNSTABLE yq eval '.data."admin.kubeconfig" = env(KCP_KUBECONFIG_UNSTABLE)' samples/kcp-co-pipelines/resources/singapore-secret.yaml | oc apply -n singapore-unstable -f -
+      
+
+      echo "Creating ImagePullSecret..."
+      _TEMPLATE="apiVersion: v1
+      data:
+        .dockerconfigjson: $(inputs.params.imagePullSecret)
+      kind: Secret
+      metadata:
+        name: acm-pull-secret
+      type: kubernetes.io/dockerconfigjson"
+      echo "$_TEMPLATE" | oc apply -n open-cluster-management -f  -
+      echo "$_TEMPLATE" | oc apply -n openshift-marketplace -f -
+
+      oc apply -f samples/kcp-co-pipelines/resources/openshift-gitops-sub.yaml
+      echo "Creating OpenShift Gitops Subscription ..."
+      _ATTEMPTS=0
+      until oc get sub openshift-gitops-operator -n openshift-operators -o jsonpath='{.status.currentCSV}' | grep -q "openshift-gitops-operator";
+      do 
+          _ATTEMPTS=$((_ATTEMPTS + 1))
+          echo "Attempt: ${_ATTEMPTS}/5 - Waiting for CSV"
+          sleep 5;
+          if [[ $_ATTEMPTS == 5 ]]; then
+              echo "Failed to find the CSV in allotted time"
+              exit 1
+          fi
+      done
+      echo "OpenShift GitOps CSV has been created"
+
+      echo ""
+      _CURRENT_CSV=$(oc get sub openshift-gitops-operator -n openshift-operators -o jsonpath='{.status.currentCSV}')
+      
+      _ATTEMPTS=0 
+      until oc get csv ${_CURRENT_CSV} -n openshift-operators -o jsonpath='{.status.phase}' | grep "Succeeded";
+      do 
+          echo "Attempt: ${_ATTEMPTS}/15 - Waiting for CSV installation to complete"
+          _ATTEMPTS=$((_ATTEMPTS + 1))
+          sleep 15;
+          if [[ $_ATTEMPTS == 15 ]]; then
+              echo "The CSV failed to install in the allotted time"
+              exit 1
+          fi
+      done
+
+      echo "ACM Prereqs installation has succeeded"
+      exit 0
+
+    command:
+    - /bin/bash
+    - -c
+    image: quay.io/acm-sre/ocm-utils:latest
+    resources: {}
+    workingDir: /workspace/source
+  - name: ensure-acm
+    args:
+    - |-
+      #!/bin/bash
+      set -e
+
+      _LOGIN_CMD=$(cat login.sh)
+      eval "$_LOGIN_CMD"
+
+      oc apply -f samples/kcp-co-pipelines/resources/argo/argo-rbac.yaml
+      oc apply -f samples/kcp-co-pipelines/resources/argo/acm-argo.yaml
+      oc apply -f samples/kcp-co-pipelines/resources/argo/cluster-registration-argo.yaml
+      # oc apply -f samples/kcp-co-pipelines/resources/argo/sinagpore-argo.yaml
+
+      _ATTEMPTS=0
+      until oc get mch multiclusterhub -n open-cluster-management -o jsonpath={'.status.phase'} | grep "Running";
+      do 
+          echo "Attempt: ${_ATTEMPTS}/60 - Waiting for MCH to enter a Running state"
+          _ATTEMPTS=$((_ATTEMPTS + 1))
+          sleep 60;
+          if [[ $_ATTEMPTS == 60 ]]; then
+              echo "Failed to install the MCH in allotted time"
+              exit 1
+          fi
+      done
+
+      echo "MultiClusterHub is running"
+      exit 0
+
+    command:
+    - /bin/bash
+    - -c
+    image: quay.io/acm-sre/ocm-utils:latest
+    resources: {}
+    workingDir: /workspace/source
+  workspaces:
+  - name: source
+
+---
+
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: deploy-kcp-co-hub-hypershift-deployments
+spec:
+  steps:
+  - name: hypershift-prereqs
+    args:
+    - |-
+      #!/bin/bash
+      set -e
+
+      HYPERSHIFT_CREDS=$(oc get secret kcp-sgs-pipelines-hypershift-operator-oidc-provider-s3-credentials -o yaml | yq eval 'del(.metadata)' - | yq eval '.metadata.name = "hypershift-operator-oidc-provider-s3-credentials"' -)
+      ACM_AWS_CREDS=$(oc get secret kcp-sgs-pipelines-acm-aws-creds -o yaml | yq eval 'del(.metadata)' - | yq eval '.metadata.name = "aws-credentials"' -)
+      ACM_AZR_CREDS=$(oc get secret kcp-sgs-pipelines-acm-azure-creds -o yaml | yq eval 'del(.metadata)' - | yq eval '.metadata.name = "azr-credentials"' -)
+
+      _LOGIN_CMD=$(cat login.sh)
+      eval "$_LOGIN_CMD"
+
+      echo "$HYPERSHIFT_CREDS" | oc apply -f - -n local-cluster
+      echo "$ACM_AWS_CREDS" | oc apply -f - -n local-cluster
+      echo "$ACM_AZR_CREDS" | oc apply -f - -n local-cluster
+
+      echo "Applying HyperShift ManagedClusterAddon ..."
+      oc apply -f samples/kcp-co-pipelines/resources/hypershift/hypershift-addon.yaml -n local-cluster
+      echo "HyperShift prereqs installed"
+
+    command:
+    - /bin/bash
+    - -c
+    image: quay.io/acm-sre/ocm-utils:latest
+    resources: {}
+    workingDir: /workspace/source
+  - name: ensure-hypershift-deploys
+    args:
+    - |-
+      #!/bin/bash
+      set -e
+
+      function validateHD {
+        _HD_NAME=$1
+
+        echo "Validating ${_HD_NAME} Hypershiftdeployment has completed"
+        _ATTEMPTS=0
+        until  oc get hd ${_HD_NAME} -n local-cluster --no-headers | grep "Completed";
+        do 
+          echo "$_ATTEMPTS/60: ${_HD_NAME} Hypershiftdeployment is not yet ready"
+          _ATTEMPTS=$((_ATTEMPTS + 1))
+          sleep 60;
+          if [[ $_ATTEMPTS == 60 ]]; then
+              echo "The Hypershiftdeployment is not ready"
+              oc delete hd ${_HD_NAME} -n local-cluster
+              exit 1
+          fi
+        done
+        echo "${_HD_NAME} Hypershiftdeployment has completed successfully"
+      }
+
+      _LOGIN_CMD=$(cat login.sh)
+      eval "$_LOGIN_CMD"
+
+      echo "Applying Hypershiftdeployment ..."
+      oc apply -f samples/kcp-co-pipelines/resources/hypershift/aws-hypershiftdeployment.yaml -n local-cluster
+      oc apply -f samples/kcp-co-pipelines/resources/hypershift/azr-hypershiftdeployment.yaml -n local-cluster
+      oc apply -f samples/kcp-co-pipelines/resources/hypershift/kcp-unstable-hypershiftdeployment.yaml -n local-cluster
+      echo "Hypershiftdeployments applied"
+
+      validateHD aws-hd
+      validateHD azure-hd
+      validateHD kcp-unstable
+
+      echo "Hypershiftdeployments are ready"
+      exit 0
+    command:
+    - /bin/bash
+    - -c
+    image: quay.io/acm-sre/ocm-utils:latest
+    resources: {}
+    workingDir: /workspace/source
+  workspaces:
+  - name: source
+
+---
+
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: deploy-kcp-co-hub-configure-idp
+spec:
+  steps:
+  - args:
+    - |-
+      #!/bin/bash
+      set -e
+      
+      _GITHUB_CLIENT_ID=$(oc get secret kcp-sgs-pipelines-secrets-config -o yaml | yq eval '.data.clientID' - | base64 -d)
+      _GITHUB_CLIENT_SECRET=$(oc get secret kcp-sgs-pipelines-secrets-config -o yaml | yq eval '.data.clientSecret' - | base64 -d)
+
+      _LOGIN_CMD=$(cat login.sh)
+      eval "$_LOGIN_CMD"
+
+      oc create secret generic github-idp-client-secret --from-literal=clientSecret=${_GITHUB_CLIENT_SECRET} -n openshift-config || true
+
+      CLIENT_ID=${_GITHUB_CLIENT_ID} yq eval -i '.spec.identityProviders[0].github.clientID = env(CLIENT_ID)' samples/kcp-co-pipelines/resources/github-idp.yaml
+
+      oc apply -f samples/kcp-co-pipelines/resources/github-idp.yaml
+
+      oc apply -f samples/kcp-co-pipelines/resources/kcp-sgs-sre-rbac.yaml
+      
+      exit 0 
+    command:
+    - /bin/bash
+    - -c
+    image: quay.io/acm-sre/ocm-utils:latest
+    name: apply
+    resources: {}
+    workingDir: /workspace/source
+  workspaces:
+  - name: source
+
+---
+
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: deploy-kcp-co-hub-apply-argo
+spec:
+  steps:
+    - args:
+        - |-
+          #!/bin/bash
+          set -e
+
+          _AWS_ACCESS_KEY=$(oc get secret kcp-sgs-pipelines-secrets-config -o yaml | yq eval '.data.awsAccessKey' - | base64 -d)
+          _AWS_SECRET_ACCESS_KEY=$(oc get secret kcp-sgs-pipelines-secrets-config -o yaml | yq eval '.data.awsSecretAccessKey' - | base64 -d)
+          _ZEROSSL_EAB_KID=$(oc get secret kcp-sgs-pipelines-secrets-config -o yaml | yq eval '.data.zeroSSL_EAB_KID' - | base64 -d)
+          _ZEROSSL_EAB_HMAC_KEY=$(oc get secret kcp-sgs-pipelines-secrets-config -o yaml | yq eval '.data.zeroSSL_EAB_HMAC_Key' - | base64 -d)
+          _CONGIG_SECRET=$(oc get secret kcp-sgs-pipelines-secrets-config -o yaml | yq eval 'del(.metadata)' - | yq eval '.metadata.name = "kcp-sgs-pipelines-secrets-config"' -)
+
+          echo "[default]
+          aws_access_key_id=${_AWS_ACCESS_KEY}
+          aws_secret_access_key=${_AWS_SECRET_ACCESS_KEY}" > awscredentials
+
+          _LOGIN_CMD=$(cat login.sh)
+          eval "$_LOGIN_CMD"
+
+          echo "$_CONGIG_SECRET" | oc apply -f - -n open-cluster-management
+          echo "Applying Policy prereqs"
+          oc create namespace policies --dry-run=client -o yaml | oc apply -f -
+
+          echo "Applying Cluster Backup prereqs"
+          oc create namespace open-cluster-management-backup --dry-run=client -o yaml | oc apply -f -
+          oc create secret generic cloud-credentials --namespace open-cluster-management-backup --from-file cloud=awscredentials || true
+
+          echo "Applying CertManager prereqs"
+          git clone https://github.com/acmesh-official/acme.sh.git || true
+          cd acme.sh
+
+          export API=$(oc whoami --show-server | cut -f 2 -d ':' | cut -f 3 -d '/' | sed 's/-api././')
+
+          export WILDCARD=$(oc get ingresscontroller default -n openshift-ingress-operator -o jsonpath='{.status.domain}')
+
+          echo "API: ${API}"
+          echo "WILDCARD: ${WILDCARD}"
+
+          ./acme.sh  --register-account  --server zerossl --eab-kid ${_ZEROSSL_EAB_KID} --eab-hmac-key  ${_ZEROSSL_EAB_HMAC_KEY}
+
+          AWS_SECRET_ACCESS_KEY=${_AWS_SECRET_ACCESS_KEY} AWS_ACCESS_KEY_ID=${_AWS_ACCESS_KEY} ./acme.sh  --issue --dns dns_aws -d ${API} -d *.${WILDCARD}
+
+          oc create secret tls router-certs --cert=/root/.acme.sh/${API}/fullchain.cer --key=/root/.acme.sh/${API}/${API}.key -n openshift-ingress || true
+          oc patch ingresscontroller default -n openshift-ingress-operator --type=merge --patch='{"spec": { "defaultCertificate": { "name": "router-certs" }}}'
+
+          oc create secret tls api-certs --cert=/root/.acme.sh/${API}/fullchain.cer --key=/root/.acme.sh/${API}/${API}.key -n openshift-config || true
+          oc patch apiserver cluster --type=merge -p \
+          "{\"spec\":{\"servingCerts\": {\"namedCertificates\": [{\"names\":
+          [\"${API}\"], \"servingCertificate\": {\"name\": \"api-certs\"}}]}}}"
+
+          oc create namespace cert-manager --dry-run=client -o yaml | oc apply -f -
+
+          echo "$_CONGIG_SECRET" | oc apply -f - -n cert-manager
+
+          echo "All prereqs applied"
+          exit 0 
+      command:
+        - /bin/bash
+        - '-c'
+      image: 'quay.io/acm-sre/ocm-utils:latest'
+      name: apply-argo-prereqs
+      resources: {}
+      workingDir: /workspace/source
+    - args:
+        - |-
+          #!/bin/bash
+          set -e
+
+          _LOGIN_CMD=$(cat login.sh)
+          eval "$_LOGIN_CMD"
+
+          oc apply -f samples/kcp-co-pipelines/resources/argo/policies.yaml
+          oc apply -f samples/kcp-co-pipelines/resources/argo/cluster-backup.yaml
+          oc apply -f samples/kcp-co-pipelines/resources/argo/patch-operator.yaml
+          oc apply -f samples/kcp-co-pipelines/resources/argo/cert-manager.yaml
+          oc apply -f samples/kcp-co-pipelines/resources/argo/alertmanager-to-github.yaml
+          oc apply -f samples/kcp-co-pipelines/resources/argo/observability.yaml
+          echo "Argo apps applied"
+          exit 0
+      command:
+        - /bin/bash
+        - '-c'
+      image: 'quay.io/acm-sre/ocm-utils:latest'
+      name: apply-argo-apps
+      resources: {}
+      workingDir: /workspace/source
+  workspaces:
+  - name: source
