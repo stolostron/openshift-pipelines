@@ -62,15 +62,15 @@ spec:
     workspaces:
     - name: source
       workspace: shared-workspace
-  - name: configure-hypershift
-    runAfter:
-    - ensure-acm
-    taskRef:
-      kind: Task
-      name: deploy-kcp-co-hub-hypershift-deployments
-    workspaces:
-    - name: source
-      workspace: shared-workspace
+  # - name: configure-hypershift
+  #   runAfter:
+  #   - ensure-acm
+  #   taskRef:
+  #     kind: Task
+  #     name: deploy-kcp-co-hub-hypershift-deployments
+  #   workspaces:
+  #   - name: source
+  #     workspace: shared-workspace
   - name: apply-argo-apps
     runAfter:
     - configure-idp
