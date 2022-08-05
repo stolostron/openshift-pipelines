@@ -1,0 +1,167 @@
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: install-idp-mgmt-config
+spec:
+  workspaces:
+  - name: source
+  params:
+  - name: release
+    default: '0.4.0'
+    description: Snapshot version number, required
+    type: string  
+  - name: API_ENDPOINT
+    default: 'https://api.example.domain.com:6443'
+    description: k8s endpoint url
+    type: string
+  - name: GITOPS_SECRET_NAME
+    default: 'gitops-encoded'
+    description: Name of the secret that contains credentials
+    type: string
+  - name: IDP_SECRET_NAME
+    default: 'idp-mgmt-config-setting-secret'
+    description: Name of the secret that contains credentials
+    type: string
+  steps:
+  - args:
+    - |-
+      
+      echo "starting work ..."
+
+      _TOKEN_RAW=$(oc get secret $(params.GITOPS_SECRET_NAME) -ojsonpath='{.data.ocpTokenEncoded}' | base64 --decode | base64 --decode)
+      
+      _PS=$(oc get secret $(params.GITOPS_SECRET_NAME) -ojsonpath='{.data.globalPullSecretEncoded}' | base64 --decode)
+      
+      export KUBECONFIG=/tmp/local-kubeconfig
+      oc login --token=$_TOKEN_RAW --server=$(params.API_ENDPOINT) --insecure-skip-tls-verify=true
+      oc cluster-info
+
+      cat > ./idp-config-mgmt.subscription.yaml <<EOF
+      apiVersion: operators.coreos.com/v1alpha1
+      kind: Subscription
+      metadata:
+        labels:
+          operators.coreos.com/idp-mgmt-operator-product.idp-mgmt-config: ""
+        name: idp-mgmt-operator-product
+        namespace: idp-mgmt-config
+      spec:
+        channel: alpha
+        installPlanApproval: Automatic
+        name: idp-mgmt-operator-product
+        source: redhat-operators
+        sourceNamespace: openshift-marketplace
+        startingCSV: idp-mgmt-operator-product.v$(params.release)
+      EOF
+
+      cat > ./idpconfig.yaml <<EOF
+      apiVersion: identityconfig.identitatem.io/v1alpha1
+      kind: IDPConfig
+      metadata:
+        name: idp-config
+        namespace: idp-mgmt-config
+      spec:
+      EOF
+
+      cat ./idp-config-mgmt.subscription.yaml
+
+      oc new-project idp-mgmt-config || true
+      oc apply -f ./idp-config-mgmt.subscription.yaml -n idp-mgmt-config
+      
+      echo "waiting 20s ..."
+      sleep 20
+      oc apply -f ./idpconfig.yaml
+
+      echo "waiting 40s ..."
+      sleep 40
+
+      export client_secret_encoded=$(oc get secret idp-mgmt-config-setting-secret -ojsonpath='{.data.client-secret-encoded}' | base64 --decode)
+      export client_id=$(oc get secret idp-mgmt-config-setting-secret -ojsonpath='{.data.client-id}' | base64 --decode)
+      
+      cat > ./sso.yaml <<EOF
+      ---
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        labels:
+          control-plane: controller-manager
+        name: authrealm-sample-github-ns
+      ---
+      apiVersion: cluster.open-cluster-management.io/v1beta1
+      kind: ManagedClusterSet
+      metadata:
+        name: sso-clusterset
+        namespace: authrealm-sample-github-ns
+      ---
+      apiVersion: cluster.open-cluster-management.io/v1beta1
+      kind: Placement
+      metadata:
+        name: sso-placement
+        namespace: authrealm-sample-github-ns
+      spec:
+        predicates:
+        - requiredClusterSelector:
+            labelSelector:
+              matchLabels:
+                authdeployment: east
+      ---
+      apiVersion: cluster.open-cluster-management.io/v1beta1
+      kind: ManagedClusterSetBinding
+      metadata:
+        name: sso-clusterset
+        namespace: authrealm-sample-github-ns
+      spec:
+        clusterSet: sso-clusterset
+      ---
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: sso-client-secret
+        namespace: authrealm-sample-github-ns
+      data:
+        clientSecret: $client_secret_encoded
+      type: Opaque
+      ---
+      apiVersion: identityconfig.identitatem.io/v1alpha1
+      kind: AuthRealm
+      metadata:
+        name: sso
+        namespace: authrealm-sample-github-ns
+      spec:
+        type: dex
+        routeSubDomain: testdomain
+        placementRef:
+          name: sso-placement
+        identityProviders:
+          - name: "sso"
+            mappingMethod: add
+            type: GitHub
+            github:
+              clientID: $client_id
+              clientSecret:
+                name: sso-client-secret
+              organizations:
+              - stolostron
+              - sprint-demo
+      EOF
+
+      oc apply -f ./sso.yaml
+
+      echo "waiting 60s ..."
+      sleep 60
+      echo "✅ Register managed clusters from idp-mgmt-config ..."
+      oc label managedcluster local-cluster authdeployment=east --overwrite
+      oc label managedcluster local-cluster cluster.open-cluster-management.io/clusterset=sso-clusterset --overwrite
+
+      echo "✅ Wait for rollout status to complete ..."
+      oc rollout status deploy/oauth-openshift -n openshift-authentication --watch
+
+      echo "Done with task ..."
+
+      exit 0
+    command:
+    - /bin/bash
+    - -c
+    image: quay.io/zkayyali812/ocm-utils:latest
+    name: apply
+    resources: {}
+    workingDir: /workspace/source
