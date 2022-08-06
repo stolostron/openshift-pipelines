@@ -46,7 +46,38 @@ spec:
       export COMPOSITE_BUNDLE=true
       export CUSTOM_REGISTRY_REPO="quay.io:443/acm-d"
 
-      ./start.sh
+      ./start.sh --watch
+
+      cat > ./mco.yaml <<EOF
+      apiVersion: observability.open-cluster-management.io/v1beta2
+      kind: MultiClusterObservability
+      metadata:
+        labels:
+          app.kubernetes.io/instance: multiclusterobservability
+        name: observability
+      spec:
+        enableDownsampling: true
+        imagePullSecret: multiclusterhub-operator-pull-secret
+        observabilityAddonSpec:
+          enableMetrics: true
+          interval: 300
+        storageConfig:
+          alertmanagerStorageSize: 1Gi
+          compactStorageSize: 100Gi
+          metricObjectStorage:
+            key: thanos.yaml.secret
+            name: thanos-object-storage
+          receiveStorageSize: 100Gi
+          ruleStorageSize: 1Gi
+          storageClass: managed-premium
+          storeStorageSize: 10Gi
+          writeStorage:
+          - key: ep.yaml
+            name: victoriametrics
+          - key: ep.yaml
+            name: kafka
+      EOF      
+
 
       exit 0
     command:
