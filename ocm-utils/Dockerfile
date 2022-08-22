@@ -74,4 +74,8 @@ RUN curl --silent --location https://dl.google.com/dl/cloudsdk/channels/rapid/do
 RUN curl --silent --location https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz | tar xz -C /tmp && \
     mv /tmp/eksctl /usr/local/bin
 
+# Install ibmcloud cli
+RUN curl -fsSL https://clis.cloud.ibm.com/install/linux | sh && \
+    ibmcloud update
+
 ENV PATH=${PATH}:/usr/local/go/bin
