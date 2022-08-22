@@ -1,6 +1,7 @@
 FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
 
-RUN microdnf update -y && microdnf install -y file podman python39 python-pip tar gzip jq wget git make unzip
+RUN microdnf update -y && microdnf install -y file podman python39 python-pip tar gzip jq wget git make unzip \
+    httpd-tools findutils which make gcc
 
 RUN python3 -m pip install --upgrade pip
 
@@ -52,5 +53,25 @@ RUN mkdir -p ~/bin && \
     curl -Lo ~/bin/ocm https://github.com/openshift-online/ocm-cli/releases/download/v0.1.62/ocm-linux-amd64 && \
     chmod +x ~/bin/ocm && \
     mv ~/bin/ocm /usr/local/bin/ocm
+
+# Install az cli
+RUN rpm --import https://packages.microsoft.com/keys/microsoft.asc && \
+    echo -e "[azure-cli]\n\
+name=Azure CLI\n\
+baseurl=https://packages.microsoft.com/yumrepos/azure-cli\n\
+enabled=1\n\
+gpgcheck=1\n\
+gpgkey=https://packages.microsoft.com/keys/microsoft.asc" | tee /etc/yum.repos.d/azure-cli.repo && \
+    microdnf -y install azure-cli
+
+# Install gcloud CLI
+RUN curl --silent --location https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-sdk-378.0.0-linux-x86_64.tar.gz --output google-cloud-sdk.tar.gz && \
+    tar xzf google-cloud-sdk.tar.gz && \
+    ./google-cloud-sdk/install.sh --path-update=true --quiet && \
+    rm -rf google-cloud-sdk.tar.gz
+
+# Install eks cli
+RUN curl --silent --location https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz | tar xz -C /tmp && \
+    mv /tmp/eksctl /usr/local/bin
 
 ENV PATH=${PATH}:/usr/local/go/bin
