@@ -1,0 +1,75 @@
+---
+# Pupose: Use this task to iterate through the list of ROSA clusters, and delete them.
+#         The intention is to run this pipeline at the EOD to ensure all resources are removed.
+#
+# references: https://examples.openshift.pub/cluster-configuration/authentication/token/
+#
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: task-rosa-delete-all
+spec:
+  params:
+  - name: API_ENDPOINT
+    default: 'https://api.example.domain.com:6443'
+    description: k8s endpoint url
+    type: string
+  - name: GITOPS_SECRET_NAME
+    default: 'gitops-encoded'
+    description: Name of the secret that contains credentials
+    type: string  
+  steps:
+  - args:
+    - |-
+      set -e
+
+      echo "✅ 😊 check if I have access to the current ns ..."
+      oc cluster-info
+
+      echo "✅ 😊 check if cm cli is available ..."
+      cm version
+
+      export KUBECONFIG=/tmp/local-kubeconfig
+      export NS=open-cluster-management-pipelines
+
+      TOKEN=$(oc serviceaccounts get-token pipeline)
+      oc login --token=$TOKEN --server=$(params.API_ENDPOINT) --insecure-skip-tls-verify=true
+      echo "✅ successfully login to cluster ..."
+      
+      _GITHUB_CLIENT_ID=$(oc get secret rosa-pipeline-secret -o yaml -n $NS | yq eval '.data.clientID' - | base64 -d)
+      _GITHUB_CLIENT_SECRET=$(oc get secret rosa-pipeline-secret -o yaml -n $NS | yq eval '.data.clientSecret' - | base64 -d)
+      _ROSA_TOKEN=$(oc get secret rosa-pipeline-secret -ojsonpath='{.data.rosa-access-token'} | base64 --d)
+      _AWS_ACCESS_KEY_ID=$(oc get secret rosa-pipeline-secret -ojsonpath='{.data.aws_access_key_id'} | base64 --d)
+      _AWS_SECRET_ACCESS_KEY=$(oc get secret rosa-pipeline-secret -ojsonpath='{.data.aws_secret_access_key'} | base64 --d)
+
+      export AWS_ACCESS_KEY_ID=$_AWS_ACCESS_KEY_ID
+      export AWS_SECRET_ACCESS_KEY=$_AWS_SECRET_ACCESS_KEY
+      export AWS_REGION=us-west-1
+      DATE_UTC=$(date +%Y.%m.%d_%H.%M.%S.%N -u)
+
+      rosa --help
+      rosa version
+      rosa login --token=$_ROSA_TOKEN
+      
+      echo "🎉 cluster list ..."
+      rosa list clusters
+
+      # echo "✅ creating ns as marker ..."
+
+      list=$(rosa list clusters -o yaml | yq eval '.[].name' -)
+      for i in $list
+      do
+        echo "✅ Want to delete ROSA cluster: $i ..."
+        rosa delete cluster --cluster=$i --yes
+        echo "🫣 dropping the rosa cluster will leave managed cluster in UNKNOWN state ..."
+      done
+      exit 0 
+    command:
+    - /bin/bash
+    - -c
+    image: quay.io/acm-sre/ocm-utils:latest
+    name: apply
+    resources: {}
+    workingDir: /workspace/source
+  workspaces:
+  - name: source

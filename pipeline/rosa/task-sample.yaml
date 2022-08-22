@@ -1,0 +1,70 @@
+---
+# references: https://examples.openshift.pub/cluster-configuration/authentication/token/
+#
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: task-sample
+spec:
+  params:
+  - name: API_ENDPOINT
+    default: 'https://api.example.domain.com:6443'
+    description: k8s endpoint url
+    type: string
+  - name: GITOPS_SECRET_NAME
+    default: 'gitops-encoded'
+    description: Name of the secret that contains credentials
+    type: string  
+  steps:
+  - args:
+    - |-
+      set -e
+
+      echo "😊 Welcome to Openshift Pipeline ..."
+      echo "✅ check if I already have access to the current cluster ..."
+      oc cluster-info
+
+      export KUBECONFIG=/tmp/local-kubeconfig
+      export NS=open-cluster-management-pipelines
+
+      TOKEN=$(oc serviceaccounts get-token pipeline)
+      oc login --token=$TOKEN --server=$(params.API_ENDPOINT) --insecure-skip-tls-verify=true
+      echo "✅ successfully login to cluster ..."
+      
+      _GITHUB_CLIENT_ID=$(oc get secret rosa-pipeline-secret -o yaml -n $NS | yq eval '.data.clientID' - | base64 -d)
+      _GITHUB_CLIENT_SECRET=$(oc get secret rosa-pipeline-secret -o yaml -n $NS | yq eval '.data.clientSecret' - | base64 -d)
+      _ROSA_TOKEN=$(oc get secret rosa-pipeline-secret -ojsonpath='{.data.rosa-access-token'} | base64 --d)
+      _AWS_ACCESS_KEY_ID=$(oc get secret rosa-pipeline-secret -ojsonpath='{.data.aws_access_key_id'} | base64 --d)
+      _AWS_SECRET_ACCESS_KEY=$(oc get secret rosa-pipeline-secret -ojsonpath='{.data.aws_secret_access_key'} | base64 --d)
+
+      export AWS_ACCESS_KEY_ID=$_AWS_ACCESS_KEY_ID
+      export AWS_SECRET_ACCESS_KEY=$_AWS_SECRET_ACCESS_KEY
+      export AWS_REGION=us-west-1
+
+      rosa --help
+      rosa version
+      rosa login --token=$_ROSA_TOKEN
+      
+      echo "🎉 cluster list ..."
+      rosa list clusters
+      rosa verify quota
+
+      DATE_UTC=$(date +%Y.%m.%d_%H.%M.%S.%N -u)
+
+      echo "✅  Verify all cli are available ..."
+      for i in cm aws rosa az eksctl ibmcloud gcloud
+      do
+        echo "🎉 $(which $i)"
+      done
+
+      exit 0 
+    command:
+    - /bin/bash
+    - -c
+    # image: quay.io/cdoan_rh22/ocm-utils:test
+    image: quay.io/acm-sre/ocm-utils:latest
+    name: sample-task
+    resources: {}
+    workingDir: /workspace/source
+  workspaces:
+  - name: source
