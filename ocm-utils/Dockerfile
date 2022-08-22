@@ -64,11 +64,16 @@ gpgcheck=1\n\
 gpgkey=https://packages.microsoft.com/keys/microsoft.asc" | tee /etc/yum.repos.d/azure-cli.repo && \
     microdnf -y install azure-cli
 
-# Install gcloud CLI
-RUN curl --silent --location https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-sdk-378.0.0-linux-x86_64.tar.gz --output google-cloud-sdk.tar.gz && \
-    tar xzf google-cloud-sdk.tar.gz && \
-    ./google-cloud-sdk/install.sh --path-update=true --quiet && \
-    rm -rf google-cloud-sdk.tar.gz
+# Install gcloud cli
+RUN echo -e "[google-cloud-cli]\n\
+name=Google Cloud CLI\n\
+baseurl=https://packages.cloud.google.com/yum/repos/cloud-sdk-el9-x86_64\n\
+enabled=1\n\
+gpgcheck=0\n\
+repo_gpgcheck=0\n\
+gpgkey=https://packages.cloud.google.com/yum/doc/yum-key.gpg\n\
+    https://packages.cloud.google.com/yum/doc/rpm-package-key.gpg" | tee /etc/yum.repos.d/google-cloud-sdk.repo && \
+    microdnf -y install google-cloud-cli
 
 # Install eks cli
 RUN curl --silent --location https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz | tar xz -C /tmp && \
