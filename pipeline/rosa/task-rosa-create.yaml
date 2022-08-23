@@ -1,0 +1,132 @@
+---
+# references: https://examples.openshift.pub/cluster-configuration/authentication/token/
+#
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: task-rosa-create
+spec:
+  params:
+  - name: API_ENDPOINT
+    default: 'https://api.example.domain.com:6443'
+    description: k8s endpoint url
+    type: string
+  - name: GITOPS_SECRET_NAME
+    default: 'gitops-encoded'
+    description: Name of the secret that contains credentials
+    type: string  
+  steps:
+  - args:
+    - |-
+      set -e
+
+      echo "✅ 😊 check if I have access to the current ns ..."
+      oc cluster-info
+
+      export KUBECONFIG=/tmp/local-kubeconfig
+      export NS=open-cluster-management-pipelines
+
+      TOKEN=$(oc serviceaccounts get-token pipeline)
+      oc login --token=$TOKEN --server=$(params.API_ENDPOINT) --insecure-skip-tls-verify=true
+      echo "✅ successfully login to cluster ..."
+      
+      _GITHUB_CLIENT_ID=$(oc get secret rosa-pipeline-secret -o yaml -n $NS | yq eval '.data.clientID' - | base64 -d)
+      _GITHUB_CLIENT_SECRET=$(oc get secret rosa-pipeline-secret -o yaml -n $NS | yq eval '.data.clientSecret' - | base64 -d)
+      _ROSA_TOKEN=$(oc get secret rosa-pipeline-secret -ojsonpath='{.data.rosa-access-token'} | base64 --d)
+      _AWS_ACCESS_KEY_ID=$(oc get secret rosa-pipeline-secret -ojsonpath='{.data.aws_access_key_id'} | base64 --d)
+      _AWS_SECRET_ACCESS_KEY=$(oc get secret rosa-pipeline-secret -ojsonpath='{.data.aws_secret_access_key'} | base64 --d)
+
+      export AWS_ACCESS_KEY_ID=$_AWS_ACCESS_KEY_ID
+      export AWS_SECRET_ACCESS_KEY=$_AWS_SECRET_ACCESS_KEY
+      export AWS_REGION=us-west-1
+
+      rosa version
+      rosa login --token=$_ROSA_TOKEN
+      
+      echo "🎉 verify rosa access via cluster list ..."
+      rosa list clusters
+      rosa verify quota
+
+      DATE_UTC=$(date +%Y.%m.%d_%H.%M.%S.%N -u)
+
+      cat > ./ns.yaml <<EOF
+      kind: Namespace
+      apiVersion: v1
+      metadata:
+        generateName: rosarosa-
+        labels:
+          creation-time-utc: $DATE_UTC
+          status: creating
+      EOF
+
+      echo "✅ create ns to associate to new cluster ..."
+      oc create -f ./ns.yaml
+      
+      _NEW_CLUSTER_NAME=$(oc get ns -l status=creating --no-headers | awk '{print $1}')
+      echo $_NEW_CLUSTER_NAME
+
+      # oc label ns $_NEW_CLUSTER_NAME status-
+      # oc get ns -l status=creating
+
+      echo "✅ create rosa cluster with watch to wait for rosa cluster to be ready ..."
+      rosa create cluster --cluster-name=$_NEW_CLUSTER_NAME --watch
+
+      echo "✅ remove namespace: $_NEW_CLUSTER_NAME if it exists ..."
+      oc delete ns $_NEW_CLUSTER_NAME
+
+      echo "✅ create cluster-admin htpasswd ..."
+      _LOGIN_COMMAND=$(rosa create admin --cluster=$_NEW_CLUSTER_NAME --yes | grep "oc login" | sed -e 's/^[ \t]*//')
+      echo "$_LOGIN_COMMAND"
+
+      echo "✅ waiting (90s) for cluster-admin user to be created ..."
+      sleep 90
+
+      echo "✅ Current KUBECONFIG: $KUBECONFIG"
+      export _HUB_KUBECONFIG=$KUBECONFIG
+      export KUBECONFIG=$_NEW_CLUSTER_NAME
+
+      _COUNTER=1
+      while true;
+      do
+        if $_LOGIN_COMMAND --insecure-skip-tls-verify; then
+          echo "✅ login completed ..."
+          break
+        else
+          sleep 10
+          echo "✅ waiting 10s ..."
+          if [[ "$_COUNTER" == 60 ]]; then
+            break
+          else
+            _COUNTER=$((_COUNTER+1))
+          fi
+        fi
+      done
+
+      if [ ! -f $_NEW_CLUSTER_NAME ]; then
+        echo "did not create rosa kubeconfig file ..."
+      fi
+
+      echo "✅ switch back to hub context"
+      export KUBECONFIG=$_HUB_KUBECONFIG
+
+      echo "✅ import rosa cluster into hub ..."
+      cm attach cluster --cluster $_NEW_CLUSTER_NAME --cluster-kubeconfig $_NEW_CLUSTER_NAME
+
+      echo "✅ wait for managed cluster to be ready ..."
+      oc wait --for="condition=ManagedClusterConditionAvailable" managedcluster $_NEW_CLUSTER_NAME -n $_NEW_CLUSTER_NAME --timeout=60s
+      oc get managedclusteraddon -n $_NEW_CLUSTER_NAME
+
+      echo "✅ make sure ns no longer has status label ..."
+      oc label ns $_NEW_CLUSTER_NAME status-
+      oc get ns -l status=creating
+
+      exit 0 
+    command:
+    - /bin/bash
+    - -c
+    image: quay.io/acm-sre/ocm-utils:latest
+    name: apply
+    resources: {}
+    workingDir: /workspace/source
+  workspaces:
+  - name: source
