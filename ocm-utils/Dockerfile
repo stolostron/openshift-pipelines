@@ -65,6 +65,7 @@ gpgkey=https://packages.microsoft.com/keys/microsoft.asc" | tee /etc/yum.repos.d
     microdnf -y install azure-cli
 
 # Install gcloud cli
+# NOTE(cdoan): pinning to 383.0.1 because was not able to install the gcloud auth plugin at 399.0.0
 RUN echo -e "[google-cloud-cli]\n\
 name=Google Cloud CLI\n\
 baseurl=https://packages.cloud.google.com/yum/repos/cloud-sdk-el9-x86_64\n\
@@ -73,7 +74,7 @@ gpgcheck=0\n\
 repo_gpgcheck=0\n\
 gpgkey=https://packages.cloud.google.com/yum/doc/yum-key.gpg\n\
     https://packages.cloud.google.com/yum/doc/rpm-package-key.gpg" | tee /etc/yum.repos.d/google-cloud-sdk.repo && \
-    microdnf -y install google-cloud-cli
+    microdnf -y install google-cloud-cli-383.0.1
 
 # Install eks cli
 RUN curl --silent --location https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz | tar xz -C /tmp && \
