@@ -1,0 +1,81 @@
+---
+# references: https://examples.openshift.pub/cluster-configuration/authentication/token/
+#
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: task-gke-create
+spec:
+  params:
+  - name: API_ENDPOINT
+    default: 'https://api.example.domain.com:6443'
+    description: k8s endpoint url
+    type: string
+  - name: GITOPS_SECRET_NAME
+    default: 'gitops-encoded'
+    description: Name of the secret that contains credentials
+    type: string  
+  steps:
+  - args:
+    - |-
+      set -e
+
+      echo "✅ 😊 check if I have access to the current ns ..."
+      oc cluster-info
+
+      export KUBECONFIG=/tmp/local-kubeconfig
+      export NS=open-cluster-management-pipelines
+
+      TOKEN=$(oc serviceaccounts get-token pipeline)
+      oc login --token=$TOKEN --server=$(params.API_ENDPOINT) --insecure-skip-tls-verify=true
+      echo "✅ successfully login to cluster ..."
+
+      _GCLOUD_CREDS_ENCODED=$(oc get secret gcloud-pipeline-secret -ojsonpath='{.data.gcloud-creds-encoded'} | base64 --d)
+      echo $_GCLOUD_CREDS_ENCODED | base64 --d > ./gcloud-creds.json 
+      
+      DATE_UTC=$(date +%Y.%m.%d_%H.%M.%S.%N -u)
+
+      gcloud auth login --cred-file=./gcloud-creds.json
+      gcloud config set project gc-acm-demo
+      gcloud container clusters list
+
+      export REGION=us-east1
+      export KUBECONFIG=cdoan-gke-test
+      export CLUSTER_NAME=hello-cluster
+      
+      
+      export _NEW_CLUSTER_NAME=cdoan-gke-test
+
+      # gcloud container clusters create-auto hello-cluster --region=us-east1
+      gcloud container clusters create $_NEW_CLUSTER_NAME \
+        --num-nodes=2 \
+        --zone=$REGION
+
+      echo "✅ Current KUBECONFIG: $KUBECONFIG"
+      export _HUB_KUBECONFIG=$KUBECONFIG
+      export KUBECONFIG=$_NEW_CLUSTER_NAME
+
+      gcloud container clusters get-credentials $_NEW_CLUSTER_NAME --region $REGION
+      kubectl get nodes
+      kubectl get ns
+
+      echo "✅ switch back to hub context"
+      export KUBECONFIG=$_HUB_KUBECONFIG
+
+      echo "✅ import rosa cluster into hub ..."
+      cm attach cluster --cluster $_NEW_CLUSTER_NAME --cluster-kubeconfig $_NEW_CLUSTER_NAME
+
+      echo "✅ wait for managed cluster to be ready ..."
+      oc wait --for="condition=ManagedClusterConditionAvailable" managedcluster $_NEW_CLUSTER_NAME -n $_NEW_CLUSTER_NAME --timeout=60s
+      oc get managedclusteraddon -n $_NEW_CLUSTER_NAME
+
+      exit 0 
+    command:
+    - /bin/bash
+    - -c
+    image: quay.io/cdoan_rh22/ocm-utils:latest
+    name: apply
+    resources: {}
+    workingDir: /workspace/source
+  workspaces:
+  - name: source
