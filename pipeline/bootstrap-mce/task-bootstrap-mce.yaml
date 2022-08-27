@@ -21,38 +21,32 @@ spec:
     - |-
       set -e
 
+      echo "😊 Connecting to hub ..."
       oc cluster-info
-      echo "😊 check if I have access to the current ns ..."
 
       export OPERATION=$(params.action)
       export TARGET_KS=$(params.target)
-      echo "✅ received arguments: ${OPERATION} ${TARGET_KS}"
+      echo "✅ Received arguments: ${OPERATION} ${TARGET_KS}"
 
       export ROSA_TOKEN=$(oc get secret bootstrap-ks-rosa-creds -ojsonpath='{.data.ROSA_TOKEN}' | base64 --decode)
       export AWS_ACCESS_KEY_ID=$(oc get secret bootstrap-ks-rosa-creds -ojsonpath='{.data.AWS_ACCESS_KEY_ID}' | base64 --decode)
       export AWS_SECRET_ACCESS_KEY=$(oc get secret bootstrap-ks-rosa-creds -ojsonpath='{.data.AWS_SECRET_ACCESS_KEY}' | base64 --decode)
-      echo "✅ loaded provider secrets."
+      echo "✅ Loaded provider credentials."
 
       export USER="tekton"
-      export OUTPUT_DEST=$(pwd)/workspace
       export REGION="us-east-1"
+      export OUTPUT_DEST=$(pwd)/workspace
+      mkdir $OUTPUT_DEST
 
       RANDOM_IDENTIFIER=$(head /dev/urandom | LC_CTYPE=C tr -dc a-z0-9 | head -c 5 ; echo '')
       SHORTNAME=$(echo $USER | head -c 8)
-
       export CLUSTER_NAME="$SHORTNAME-$RANDOM_IDENTIFIER"
-
-      mkdir $OUTPUT_DEST
-      touch $OUTPUT_DEST/bootstrap-mce.txt || true
 
       echo "✅ created directory: $OUTPUT_DEST $CLUSTER_NAME $USER"
 
       echo -n "$CLUSTER_NAME" | tee $(results.clustername.path);
 
-      # ./container-utils/provision_wrapper.sh
-
-      cat ${OUTPUT_DEST}/${CLUSTER_NAME}.json || true
-      cat ${OUTPUT_DEST}/*.json || true
+      ./container-utils/provision_wrapper.sh
 
       set +e
       exit 0 
