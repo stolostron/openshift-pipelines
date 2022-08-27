@@ -13,6 +13,9 @@ spec:
     default: ''
     description: 'rosa | aro | gke'
     type: string
+  results:
+    - name: clustername
+      description: string, return code
   steps:
   - args:
     - |-
@@ -30,11 +33,26 @@ spec:
       export AWS_SECRET_ACCESS_KEY=$(oc get secret bootstrap-ks-rosa-creds -ojsonpath='{.data.AWS_SECRET_ACCESS_KEY}' | base64 --decode)
       echo "✅ loaded provider secrets."
 
+      export USER="tekton"
       export OUTPUT_DEST=$(pwd)/workspace
-      mkdir $OUTPUT_DEST
-      echo "✅ created directory: $OUTPUT_DEST"
+      export REGION="us-east-1"
 
-      ./container-utils/provision_wrapper.sh
+      RANDOM_IDENTIFIER=$(head /dev/urandom | LC_CTYPE=C tr -dc a-z0-9 | head -c 5 ; echo '')
+      SHORTNAME=$(echo $USER | head -c 8)
+
+      export CLUSTER_NAME="$SHORTNAME-$RANDOM_IDENTIFIER"
+
+      mkdir $OUTPUT_DEST
+      touch $OUTPUT_DEST/bootstrap-mce.txt || true
+
+      echo "✅ created directory: $OUTPUT_DEST $CLUSTER_NAME $USER"
+
+      echo -n "$CLUSTER_NAME" | tee $(results.clustername.path);
+
+      # ./container-utils/provision_wrapper.sh
+
+      cat ${OUTPUT_DEST}/${CLUSTER_NAME}.json || true
+      cat ${OUTPUT_DEST}/*.json || true
 
       set +e
       exit 0 

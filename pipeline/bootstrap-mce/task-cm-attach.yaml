@@ -1,0 +1,85 @@
+---
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: task-cm-attach
+spec:
+  params:
+  - name: clustername
+  - name: override
+    default: ''
+  steps:
+  - args:
+    - |-
+      set -e
+
+      echo "✅ 😊 check if I have access to the current ns ..."
+      oc cluster-info
+
+      override=$(params.override)
+      
+      if [ ! -z $override ]; then
+        echo "😊 override found: $(params.override)"
+        export CLUSTER_NAME=$(params.override)
+      else
+        export CLUSTER_NAME=$clustername
+      fi
+
+      echo "😊 inputs: $CLUSTER_NAME $clustername"
+
+      export OUTPUT_DEST=$(pwd)/workspace
+      cat ${OUTPUT_DEST}/*.json || true
+
+      API_URL=$(oc get secret $CLUSTER_NAME -ojsonpath='{.data.api_url}' | base64 --decode)
+      USERNAME=$(oc get secret $CLUSTER_NAME -ojsonpath='{.data.username}' | base64 --decode)
+      PASSWORD=$(oc get secret $CLUSTER_NAME -ojsonpath='{.data.password}' | base64 --decode)
+
+      export KUBECONFIG=$CLUSTER_NAME
+      _LOGIN_COMMAND="oc login -s $API_URL -u $USERNAME -p $PASSWORD"
+
+      _COUNTER=1
+      while true;
+      do
+        if $_LOGIN_COMMAND --insecure-skip-tls-verify; then
+          echo "✅ login to rosa cluster completed ..."
+          break
+        else
+          sleep 10
+          echo "✅ waiting 10s ..."
+          if [[ "$_COUNTER" == 60 ]]; then
+            break
+          else
+            _COUNTER=$((_COUNTER+1))
+          fi
+        fi
+      done
+
+      echo "✅ verify new managed cluster context"
+      kubectl get nodes
+
+      echo "✅ switch to hub context"
+      unset KUBECONFIG
+      kubectl get nodes
+
+      echo "✅ attach/import cluster into hub ..."
+      cm attach cluster --cluster $CLUSTER_NAME --cluster-kubeconfig $CLUSTER_NAME
+
+      echo "✅ wait for managed cluster to be ready ..."
+      oc wait --for="condition=ManagedClusterConditionAvailable" managedcluster $CLUSTER_NAME -n $CLUSTER_NAME --timeout=60s
+      oc get managedclusters -n $CLUSTER_NAME
+      oc get managedclusteraddon -n $CLUSTER_NAME
+
+      set +e
+      exit 0 
+    command:
+    - /bin/bash
+    - -c
+    image: quay.io/acm-sre/ocm-utils:latest
+    name: apply
+    resources: {}
+    workingDir: /workspace/source
+    env:
+    - name: clustername
+      value: $(params.clustername)
+  workspaces:
+  - name: source

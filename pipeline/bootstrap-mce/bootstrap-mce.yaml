@@ -13,6 +13,10 @@ spec:
     default: ''
     description: "rosa | aro | gke"
     type: string
+  - name: override
+    default: ''
+    description: "optional"
+    type: string
   tasks:
   - name: fetch-repo
     params:
@@ -41,5 +45,21 @@ spec:
     workspaces:
     - name: source
       workspace: shared-workspace
+  - name: task-cm-attach
+    runAfter:
+    - task-bootstrap-mce
+    params:
+    - name: clustername
+      value: "$(tasks.task-bootstrap-mce.results.clustername)"
+    - name: override
+      value: "$(params.override)"
+    taskRef:
+      name: task-cm-attach
+    workspaces:
+    - name: source
+      workspace: shared-workspace
+  results:
+  - name: clustername
+    value: $(tasks.task-bootstrap-mce.results.clustername)
   workspaces:
   - name: shared-workspace
