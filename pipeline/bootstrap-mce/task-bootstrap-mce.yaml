@@ -1,0 +1,49 @@
+---
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: task-bootstrap-mce
+spec:
+  params:
+  - name: action
+    default: 'create'
+    description: 'create | delete'
+    type: string
+  - name: target
+    default: ''
+    description: 'rosa | aro | gke'
+    type: string
+  steps:
+  - args:
+    - |-
+      set -e
+
+      oc cluster-info
+      echo "😊 check if I have access to the current ns ..."
+
+      export OPERATION=$(params.action)
+      export TARGET_KS=$(params.target)
+      echo "✅ received arguments: ${OPERATION} ${TARGET_KS}"
+
+      export ROSA_TOKEN=$(oc get secret bootstrap-ks-rosa-creds -ojsonpath='{.data.ROSA_TOKEN}' | base64 --decode)
+      export AWS_ACCESS_KEY_ID=$(oc get secret bootstrap-ks-rosa-creds -ojsonpath='{.data.AWS_ACCESS_KEY_ID}' | base64 --decode)
+      export AWS_SECRET_ACCESS_KEY=$(oc get secret bootstrap-ks-rosa-creds -ojsonpath='{.data.AWS_SECRET_ACCESS_KEY}' | base64 --decode)
+      echo "✅ loaded provider secrets."
+
+      export OUTPUT_DEST=$(pwd)/workspace
+      mkdir $OUTPUT_DEST
+      echo "✅ created directory: $OUTPUT_DEST"
+
+      ./container-utils/provision_wrapper.sh
+
+      set +e
+      exit 0 
+    command:
+    - /bin/bash
+    - -c
+    image: quay.io/cdoan_rh22/ocm-utils:latest
+    name: apply
+    resources: {}
+    workingDir: /workspace/source
+  workspaces:
+  - name: source
