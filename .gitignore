@@ -3,3 +3,5 @@
 */**/.history
 .prereq
 */**/.prereq
+*/**/*.secret
+

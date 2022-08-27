@@ -1,0 +1,37 @@
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: task-remove-acm
+spec:
+  workspaces:
+  - name: source
+  params:
+  steps:
+  - args:
+    - |-
+    
+      echo "starting work ..."
+      oc cluster-info
+
+      echo "Removing MCO ..."
+      oc delete mco observability
+
+      echo "DESTROY" | ./uninstall.sh -k
+
+      echo "Check if there are any zombie namespaces"
+      list=$(oc get ns | grep Terminating | awk '{print $1}')
+      for i in $list
+      do
+        echo "Found namespace: $i"
+        oc patch managedclusteraddons.addon.open-cluster-management.io application-manager \
+          -n $i -p '{"metadata":{"finalizers":[]}}' --type=merge
+      done
+      
+      exit 0
+    command:
+    - /bin/bash
+    - -c
+    image: quay.io/zkayyali812/ocm-utils:latest
+    name: apply
+    resources: {}
+    workingDir: /workspace/source

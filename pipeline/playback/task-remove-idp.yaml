@@ -1,0 +1,168 @@
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: task-remove-idp
+spec:
+  workspaces:
+  - name: source
+  params:
+  - name: release
+    default: '0.4.0'
+    description: 'default: 0.4.0'
+    type: string
+  steps:
+  - args:
+    - |-
+
+      echo "starting work ..."
+      oc cluster-info
+
+      cat > ./idp-config-mgmt.subscription.yaml <<EOF
+      apiVersion: operators.coreos.com/v1alpha1
+      kind: Subscription
+      metadata:
+        labels:
+          operators.coreos.com/idp-mgmt-operator-product.idp-mgmt-config: ""
+        name: idp-mgmt-operator-product
+        namespace: idp-mgmt-config
+      spec:
+        channel: alpha
+        installPlanApproval: Automatic
+        name: idp-mgmt-operator-product
+        source: redhat-operators
+        sourceNamespace: openshift-marketplace
+        startingCSV: idp-mgmt-operator-product.v$(params.release)
+      EOF
+
+      cat > ./idpconfig.yaml <<EOF
+      apiVersion: identityconfig.identitatem.io/v1alpha1
+      kind: IDPConfig
+      metadata:
+        name: idp-config
+        namespace: idp-mgmt-config
+      spec:
+      EOF
+
+      export client_secret_encoded=$(oc get secret idp-mgmt-config-setting-secret -ojsonpath='{.data.client-secret-encoded}' | base64 --decode)
+      export client_id=$(oc get secret idp-mgmt-config-setting-secret -ojsonpath='{.data.client-id}' | base64 --decode)
+      
+      cat > ./sso.yaml <<EOF
+      ---
+      apiVersion: cluster.open-cluster-management.io/v1beta1
+      kind: ManagedClusterSet
+      metadata:
+        name: sso-clusterset
+        namespace: authrealm-sample-github-ns
+      ---
+      apiVersion: cluster.open-cluster-management.io/v1beta1
+      kind: Placement
+      metadata:
+        name: sso-placement
+        namespace: authrealm-sample-github-ns
+      spec:
+        predicates:
+        - requiredClusterSelector:
+            labelSelector:
+              matchLabels:
+                authdeployment: east
+      ---
+      apiVersion: cluster.open-cluster-management.io/v1beta1
+      kind: ManagedClusterSetBinding
+      metadata:
+        name: sso-clusterset
+        namespace: authrealm-sample-github-ns
+      spec:
+        clusterSet: sso-clusterset
+      ---
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: sso-client-secret
+        namespace: authrealm-sample-github-ns
+      data:
+        clientSecret: $client_secret_encoded
+      type: Opaque
+      ---
+      apiVersion: identityconfig.identitatem.io/v1alpha1
+      kind: AuthRealm
+      metadata:
+        name: sso
+        namespace: authrealm-sample-github-ns
+      spec:
+        type: dex
+        routeSubDomain: testdomain
+        placementRef:
+          name: sso-placement
+        identityProviders:
+          - name: "sso"
+            mappingMethod: add
+            type: GitHub
+            github:
+              clientID: $client_id
+              clientSecret:
+                name: sso-client-secret
+              organizations:
+              - stolostron
+              - sprint-demo
+      EOF
+
+      echo "✅ deregister managed clusters from idp-mgmt-config ..."
+      oc label managedcluster local-cluster authdeployment- --overwrite
+      oc label managedcluster local-cluster cluster.open-cluster-management.io/clusterset- --overwrite
+
+      echo "✅ deleting idp settings ..."
+      oc delete -f ./sso.yaml
+      echo "✅ waiting 20s ..."
+      sleep 20
+
+      echo "✅ deleting idp operand ..."
+      oc delete -f ./idpconfig.yaml
+      echo "✅ waiting 30s ..."
+      sleep 30
+      
+      oc get pods -n idp-mgmt-config
+
+      echo "✅ deleting csv ..."
+      oc get csv -n idp-mgmt-config
+      oc delete csv idp-mgmt-operator-product.v0.4.0 -n idp-mgmt-config
+
+      echo "✅ deleting idp operator ..."
+      oc delete -f ./idp-config-mgmt.subscription.yaml -n idp-mgmt-config
+      
+      echo "🎉 Force cleanup ..."
+      oc delete deployment dex-operator -n idp-mgmt-dex
+
+      for i in "authrealms.identityconfig.identitatem.io" "clusteroauths.identityconfig.identitatem.io" "dexclients.auth.identitatem.io " "dexservers.auth.identitatem.io" "idpconfigs.identityconfig.identitatem.io" "strategies.identityconfig.identitatem.io"
+      do
+        echo "Cleaning resource $i ..."
+        A=$(oc get $i -A --no-headers | awk '{print $1}')
+        B=$(oc get $i -A --no-headers | awk '{print $2}')
+        if [[ -z "$A" ]]; then
+          continue;
+        fi
+        if [[ -z "$B" ]]; then
+          continue;
+        fi
+        echo $i $A $B
+        oc patch $i $B -n $A -p '{"metadata":{"finalizers":[]}}' --type=merge
+        oc delete $i $B -n $A
+      done
+
+      echo "deleting namespaces ..."
+      oc delete ns authrealm-sample-github-ns
+      oc delete ns idp-mgmt-testdomain
+      oc delete ns idp-mgmt-dex
+      oc delete ns sso-clusterset-broker
+      echo "✅ deleted namespaces ..."
+
+      echo "Done with task ..."
+
+      exit 0
+
+    command:
+    - /bin/bash
+    - -c
+    image: quay.io/zkayyali812/ocm-utils:latest
+    name: apply
+    resources: {}
+    workingDir: /workspace/source

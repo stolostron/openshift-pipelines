@@ -1,0 +1,61 @@
+---
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: task-bootstrap-mce
+spec:
+  params:
+  - name: action
+    default: 'create'
+    description: 'create | delete'
+    type: string
+  - name: target
+    default: ''
+    description: 'rosa | aro | gke'
+    type: string
+  results:
+    - name: clustername
+      description: string, return code
+  steps:
+  - args:
+    - |-
+      set -e
+
+      echo "😊 Connecting to hub ..."
+      oc cluster-info
+
+      export OPERATION=$(params.action)
+      export TARGET_KS=$(params.target)
+      echo "✅ Received arguments: ${OPERATION} ${TARGET_KS}"
+
+      export ROSA_TOKEN=$(oc get secret bootstrap-ks-rosa-creds -ojsonpath='{.data.ROSA_TOKEN}' | base64 --decode)
+      export AWS_ACCESS_KEY_ID=$(oc get secret bootstrap-ks-rosa-creds -ojsonpath='{.data.AWS_ACCESS_KEY_ID}' | base64 --decode)
+      export AWS_SECRET_ACCESS_KEY=$(oc get secret bootstrap-ks-rosa-creds -ojsonpath='{.data.AWS_SECRET_ACCESS_KEY}' | base64 --decode)
+      echo "✅ Loaded provider credentials."
+
+      export USER="tekton"
+      export REGION="us-east-1"
+      export OUTPUT_DEST=$(pwd)/workspace
+      mkdir $OUTPUT_DEST
+
+      RANDOM_IDENTIFIER=$(head /dev/urandom | LC_CTYPE=C tr -dc a-z0-9 | head -c 5 ; echo '')
+      SHORTNAME=$(echo $USER | head -c 8)
+      export CLUSTER_NAME="$SHORTNAME-$RANDOM_IDENTIFIER"
+
+      echo "✅ created directory: $OUTPUT_DEST $CLUSTER_NAME $USER"
+
+      echo -n "$CLUSTER_NAME" | tee $(results.clustername.path);
+
+      ./container-utils/provision_wrapper.sh
+
+      set +e
+      exit 0 
+    command:
+    - /bin/bash
+    - -c
+    image: quay.io/cdoan_rh22/ocm-utils:latest
+    name: apply
+    resources: {}
+    workingDir: /workspace/source
+  workspaces:
+  - name: source

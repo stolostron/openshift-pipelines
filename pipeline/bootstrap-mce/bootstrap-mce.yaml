@@ -1,0 +1,65 @@
+---
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  name: bootstrap-mce
+spec:
+  params:
+  - name: action
+    default: 'create'
+    description: "create | delete"
+    type: string
+  - name: target
+    default: ''
+    description: "rosa | aro | gke"
+    type: string
+  - name: override
+    default: ''
+    description: "optional"
+    type: string
+  tasks:
+  - name: fetch-repo
+    params:
+    - name: url
+      value: https://github.com/cdoan1/bootstrap-ks.git
+    - name: revision
+      value: containerize
+    - name: deleteExisting
+      value: "true"
+    taskRef:
+      kind: ClusterTask
+      name: git-clone
+    workspaces:
+    - name: output
+      workspace: shared-workspace
+  - name: task-bootstrap-mce
+    runAfter:
+    - fetch-repo
+    params:
+    - name: action
+      value: $(params.action)
+    - name: target
+      value: $(params.target)
+    taskRef:
+      name: task-bootstrap-mce
+    workspaces:
+    - name: source
+      workspace: shared-workspace
+  - name: task-cm-attach
+    runAfter:
+    - task-bootstrap-mce
+    params:
+    - name: clustername
+      value: "$(tasks.task-bootstrap-mce.results.clustername)"
+    - name: override
+      value: "$(params.override)"
+    taskRef:
+      name: task-cm-attach
+    workspaces:
+    - name: source
+      workspace: shared-workspace
+  results:
+  - name: clustername
+    value: $(tasks.task-bootstrap-mce.results.clustername)
+  workspaces:
+  - name: shared-workspace

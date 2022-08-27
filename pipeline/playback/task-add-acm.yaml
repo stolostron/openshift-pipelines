@@ -1,0 +1,89 @@
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: task-add-acm
+spec:
+  workspaces:
+  - name: source
+  params:
+  - name: snapshot
+    type: string
+    description: 'examples: v2.6.0-RC2'
+    default: 'v2.6.0-RC2'
+  - name: GITOPS_SECRET_NAME
+    default: 'gitops-encoded'
+    description: Name of the secret that contains credentials
+    type: string
+  steps:
+  - args:
+    - |-
+
+      echo "starting work ..."
+      oc cluster-info
+
+      _PS=$(oc get secret $(params.GITOPS_SECRET_NAME) -ojsonpath='{.data.globalPullSecretEncoded}' | base64 --decode)
+
+      cat > ./prereqs/pull-secret.yaml <<EOF
+      apiVersion: v1
+      data:
+        .dockerconfigjson: $_PS
+      kind: Secret
+      metadata:
+        name: multiclusterhub-operator-pull-secret
+        namespace: open-cluster-management
+      type: kubernetes.io/dockerconfigjson
+      EOF
+
+      cat > ./snapshot.ver <<EOF
+      $(params.snapshot)
+      EOF
+
+      export COMPOSITE_BUNDLE=true
+      export CUSTOM_REGISTRY_REPO="quay.io:443/acm-d"
+
+      ./start.sh
+
+      echo "Wait (600s) for mch to be in running phase ..."
+      oc wait --for="condition=complete" mch multiclusterhub -n open-cluster-management --timeout=600s
+
+      echo "Annotate mch with repository setting ..."
+      oc annotate mch multiclusterhub "mch-imageRepository=quay.io:443/acm-d" -n open-cluster-management --overwrite
+
+      echo "Install OBS ..."
+      cat <<EOF | kubectl create -f -
+      apiVersion: observability.open-cluster-management.io/v1beta2
+      kind: MultiClusterObservability
+      metadata:
+        labels:
+          app.kubernetes.io/instance: multiclusterobservability
+        name: observability
+      spec:
+        enableDownsampling: true
+        imagePullSecret: multiclusterhub-operator-pull-secret
+        observabilityAddonSpec:
+          enableMetrics: true
+          interval: 300
+        storageConfig:
+          alertmanagerStorageSize: 1Gi
+          compactStorageSize: 100Gi
+          metricObjectStorage:
+            key: thanos.yaml.secret
+            name: thanos-object-storage
+          receiveStorageSize: 100Gi
+          ruleStorageSize: 1Gi
+          storageClass: managed-premium
+          storeStorageSize: 10Gi
+          writeStorage:
+          - key: ep.yaml
+            name: victoriametrics
+          - key: ep.yaml
+            name: kafka
+      EOF
+      exit 0
+    command:
+    - /bin/bash
+    - -c
+    image: quay.io/zkayyali812/ocm-utils:latest
+    name: apply
+    resources: {}
+    workingDir: /workspace/source
