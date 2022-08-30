@@ -18,13 +18,13 @@ spec:
 
       override=$(params.override)
       
-      if [ ! -z $override ]; then
-        echo "😊 override found: $(params.override)"
+      if [[ "$override" != "" ]]; then
         export CLUSTER_NAME=$(params.override)
       else
         export CLUSTER_NAME=$clustername
       fi
 
+      echo "😊 override found: $(params.override)"
       echo "😊 inputs: $CLUSTER_NAME $clustername"
 
       export OUTPUT_DEST=$(pwd)/workspace
@@ -33,6 +33,11 @@ spec:
       API_URL=$(oc get secret $CLUSTER_NAME -ojsonpath='{.data.api_url}' | base64 --decode)
       USERNAME=$(oc get secret $CLUSTER_NAME -ojsonpath='{.data.username}' | base64 --decode)
       PASSWORD=$(oc get secret $CLUSTER_NAME -ojsonpath='{.data.password}' | base64 --decode)
+
+      if [[ "$API_URL" == "" || "$USERNAME" == "" || "$PASSWORD" == "" ]]; then
+        echo "Stop processing, managed cluster login creds not available."
+        exit 1
+      fi
 
       export KUBECONFIG=$CLUSTER_NAME
       _LOGIN_COMMAND="oc login -s $API_URL -u $USERNAME -p $PASSWORD"
