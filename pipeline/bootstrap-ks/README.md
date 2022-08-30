@@ -1,4 +1,7 @@
-# bootstrap
+# bootstrap-ks pipeline
+
+This pipeline leverages the bootstrap-ks repo to provision and import clusters into RHACM/MCE.
+
 
 ```bash
 # navigate to the pipeline workspace

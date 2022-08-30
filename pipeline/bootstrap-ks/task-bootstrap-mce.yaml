@@ -48,6 +48,9 @@ spec:
 
       ./container-utils/provision_wrapper.sh
 
+      echo "verify rosa connection ..."
+      rosa list clusters || true
+
       set +e
       exit 0 
     command:

@@ -2,7 +2,7 @@
 apiVersion: tekton.dev/v1beta1
 kind: Pipeline
 metadata:
-  name: bootstrap-mce
+  name: bootstrap-ks
 spec:
   params:
   - name: action
