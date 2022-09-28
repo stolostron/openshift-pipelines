@@ -23,8 +23,8 @@ RUN curl -sLO https://github.com/mikefarah/yq/releases/download/v4.16.1/yq_linux
     chmod +x /usr/local/bin/yq
 
 # Install go 1.17
-RUN curl -sLO https://go.dev/dl/go1.17.6.linux-amd64.tar.gz &&\
-    rm -rf /usr/local/go && tar -C /usr/local -xzf go1.17.6.linux-amd64.tar.gz
+RUN curl -sLO https://go.dev/dl/go1.19.1.linux-amd64.tar.gz &&\
+    rm -rf /usr/local/go && tar -C /usr/local -xzf go1.19.1.linux-amd64.tar.gz
 
 # Install helm
 RUN curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 \
