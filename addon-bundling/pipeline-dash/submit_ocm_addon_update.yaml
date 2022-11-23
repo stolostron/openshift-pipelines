@@ -1,0 +1,49 @@
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  name: submit-osd-addon-update
+  namespace: open-cluster-management-pipelines-ocm-addon
+spec:
+  tasks:
+  - name: fetch-repository
+    params:
+    - name: url
+      value: https://gitlab.cee.redhat.com/cdoan/managed-tenants-bundles.git
+    - name: revision
+      value: main
+    - name: deleteExisting
+      value: "true"
+    - name: subdirectory
+      value: "samples"
+    - name: gitInitImage
+      value: registry.redhat.io/openshift-pipelines/pipelines-git-init-rhel8@sha256:afc5d3f9efe26c7042635d43b8ffd09d67936e3d0b6b901dc08a33e20313d361
+    taskRef:
+      kind: ClusterTask
+      name: git-clone
+    workspaces:
+    - name: output
+      workspace: shared-workspace
+  - name: generate-bundles
+    runAfter:
+    - fetch-repository
+    - fetch-managed-tenants-bundles
+    taskRef:
+      kind: Task
+      name: generate-osd-addon-bundles
+    workspaces:
+    - name: source
+      workspace: shared-workspace
+  - name: create-merge-request
+    params:
+      - name: upstream_repo
+        value: https://gitlab.cee.redhat.com/service/managed-tenants-bundles.git
+    runAfter:
+    - generate-bundles
+    taskRef:
+      kind: Task
+      name: create-gitlab-merge-request
+    workspaces:
+    - name: source
+      workspace: shared-workspace
+  workspaces:
+  - name: shared-workspace
