@@ -4,11 +4,17 @@ metadata:
   name: submit-osd-addon-update
   namespace: open-cluster-management-pipelines-ocm-addon
 spec:
+  params:
+  - name: calculateTags
+    type: string
+    description: Automatically calculate the latest bundle tags, or use what is checked in.
+    default: "false"
+
   tasks:
   - name: fetch-repository
     params:
     - name: url
-      value: https://gitlab.cee.redhat.com/cdoan/managed-tenants-bundles.git
+      value: https://github.com/stolostron/openshift-pipelines.git
     - name: revision
       value: main
     - name: deleteExisting
@@ -23,10 +29,43 @@ spec:
     workspaces:
     - name: output
       workspace: shared-workspace
-  - name: generate-bundles
+  - name: fetch-managed-tenants-bundles
+    params:
+    - name: url
+      value: https://gitlab.cee.redhat.com/cdoan/managed-tenants-bundles.git
+    - name: revision
+      value: main
+    - name: deleteExisting
+      value: "true"
+    - name: sslVerify
+      value: "false"
+    - name: subdirectory
+      value: "managed-tenants-bundles"
+    - name: gitInitImage
+      value: registry.redhat.io/openshift-pipelines/pipelines-git-init-rhel8@sha256:afc5d3f9efe26c7042635d43b8ffd09d67936e3d0b6b901dc08a33e20313d361
+    taskRef:
+      kind: ClusterTask
+      name: git-clone
+    workspaces:
+    - name: output
+      workspace: shared-workspace
+
+  - name: update-bundle-tags
+    params:
+    - name: calculateTags
+      value: $(params.calculateTags)
     runAfter:
     - fetch-repository
     - fetch-managed-tenants-bundles
+    taskRef:
+      kind: Task
+      name: update-bundle-tags
+    workspaces:
+    - name: source
+      workspace: shared-workspace
+  - name: generate-bundles
+    runAfter:
+    - update-bundle-tags
     taskRef:
       kind: Task
       name: generate-osd-addon-bundles

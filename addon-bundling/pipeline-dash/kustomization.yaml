@@ -6,3 +6,4 @@ resources:
 - submit_ocm_addon_update.yaml
 - task_generate_bundle_files.yaml
 - task_create_mr.yaml
+- task_update_bundle_tags.yaml

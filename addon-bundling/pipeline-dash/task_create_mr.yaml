@@ -44,7 +44,7 @@ spec:
       echo "Checking out branch 'update-acm-bundles'"
       git checkout -b update-acm-bundles
 
-      cp -r ../samples/hack/ocm-addon-bundle-process/bundles/* addons/
+      cp -r ../samples/addon-bundling/bundles/* addons/
       
       git add addons/*
       git status
