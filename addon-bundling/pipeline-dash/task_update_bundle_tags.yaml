@@ -1,0 +1,63 @@
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: update-bundle-tags
+  namespace: open-cluster-management-pipelines-ocm-addon
+spec:
+  params:
+  - name: calculateTags
+    default: "false"
+    description: ""
+    type: string
+  steps:
+  - name: generate-bundles
+    args:
+    - |-
+      #!/bin/bash
+      set -e
+
+      TOP=$(pwd)
+
+      if [ "$(params.calculateTags)" == "false" ]; then
+        echo "Skip calculate tags ..."
+        exit 0
+      fi
+
+      echo "Fixing Podman permissions"
+      sed -i '/#mount_program = \"\/usr\/bin\/fuse-overlayfs\"/ s/^#//' /etc/containers/storage.conf
+
+      _QUAY_USER=$(oc get secret addon-bundling-secrets-config -o yaml | yq eval '.data.quayUser' - | base64 -d)
+      _QUAY_TOKEN=$(oc get secret addon-bundling-secrets-config -o yaml | yq eval '.data.quayToken' - | base64 -d)
+      export QUAY_BEARER_TOKEN=$(oc get secret addon-bundling-secrets-config -o yaml | yq eval '.data.quayToken' - | base64 -d)
+
+      echo "Logging into 'quay.io/acm-d'"
+      podman login quay.io/acm-d -u ${_QUAY_USER} -p ${_QUAY_TOKEN}
+      echo "Attempting generation of OSD Addon Bundles"
+      cd samples/addon-bundling
+      
+      cp config-dash.yaml config.yaml
+      make update-config
+      
+      echo "Latest:"
+      cat config.yaml
+
+      echo "Current:"
+      cat config-dash.yaml
+
+      if [ "$(params.calculateTags)" == "true" ]; then
+        echo "Using the latest bundle tags !!!"
+        set -x
+        cp config.yaml config-dash.yaml
+        set +x
+      fi
+
+      exit 0
+    command:
+    - /bin/bash
+    - -c
+    image: quay.io/acm-sre/ocm-utils:latest
+    resources: {}
+    workingDir: /workspace/source
+  workspaces:
+  - name: source
+
