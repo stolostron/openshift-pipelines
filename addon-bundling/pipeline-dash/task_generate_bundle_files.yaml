@@ -1,0 +1,51 @@
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: generate-osd-addon-bundles
+  namespace: open-cluster-management-pipelines-ocm-addon
+spec:
+  steps:
+  - name: generate-bundles
+    args:
+    - |-
+      #!/bin/bash
+      set -e
+
+      TOP=$(pwd)
+
+      ls -al
+
+      echo "Fixing Podman permissions"
+      sed -i '/#mount_program = \"\/usr\/bin\/fuse-overlayfs\"/ s/^#//' /etc/containers/storage.conf
+
+      _QUAY_USER=$(oc get secret addon-bundling-secrets-config -o yaml | yq eval '.data.quayUser' - | base64 -d)
+      _QUAY_TOKEN=$(oc get secret addon-bundling-secrets-config -o yaml | yq eval '.data.quayToken' - | base64 -d)
+
+      echo "Logging into 'quay.io/acm-d'"
+      podman login quay.io/acm-d -u ${_QUAY_USER} -p ${_QUAY_TOKEN}
+      echo "Attempting generation of OSD Addon Bundles"
+      cd samples/addon-bundling
+      
+      # make update-config
+      make bundles-dash
+      
+      find .
+
+      cd $TOP
+
+      ls -al
+      
+      find examples || true
+      find samples || true
+      find managed-tenants-bundles || true
+      
+      exit 0
+    command:
+    - /bin/bash
+    - -c
+    image: quay.io/acm-sre/ocm-utils:latest
+    resources: {}
+    workingDir: /workspace/source
+  workspaces:
+  - name: source
+
