@@ -1,12 +1,12 @@
 bundles:
 - addonChannel: beta
-  image: quay.io/acm-d/acm-operator-bundle:v2.7.0-211
-  dash: pre3
+  image: quay.io/acm-d/acm-operator-bundle:v2.7.0-223
+  dash: pre4
   operator: advanced-cluster-management
   version: 2.7.0
 - addonChannel: beta
-  image: quay.io/acm-d/mce-operator-bundle:v2.2.0-229
-  dash: pre3
+  image: quay.io/acm-d/mce-operator-bundle:v2.2.0-232
+  dash: pre4
   operator: multicluster-engine
   parent: advanced-cluster-management
   version: 2.2.0
