@@ -64,6 +64,17 @@ overrideVersionDash() {
     mv ${_resultsDir}/manifests/${_csvName} ${_resultsDir}/manifests/${operator}.v${_versionDash}.clusterserviceversion.yaml
 }
 
+overlayServiceMonitor() {
+    for monitor in ocm-grc-policy-propagator-metrics.servicemonitor.yaml
+    do
+        cp -r ./servicemonitor/$monitor bundles/advanced-cluster-management/main/${addonDash}/manifests
+    done
+    for monitor in clusterlifecycle-state-metrics-v2.servicemonitor.yaml
+    do
+        cp -r ./servicemonitor/$monitor bundles/advanced-cluster-management/multicluster-engine/2.2.0-$dash/manifests
+    done
+}
+
 _DOCKER_OR_PODMAN=${_DOCKER_OR_PODMAN:-podman}
 if ! command -v ${_DOCKER_OR_PODMAN} &> /dev/null
 then
@@ -114,3 +125,5 @@ for bundle in "${bundles[@]}"; do
 
     echo ""
 done
+
+overlayServiceMonitor
