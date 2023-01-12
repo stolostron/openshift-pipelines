@@ -1,0 +1,23 @@
+apiVersion: monitoring.rhobs/v1
+kind: ServiceMonitor
+metadata:
+  name: ocm-grc-policy-propagator-metrics-rhobs
+spec:
+  endpoints:
+  - bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+    interval: 60s
+    path: /metrics
+    port: https
+    scheme: https
+    scrapeTimeout: 10s
+    tlsConfig:
+      insecureSkipVerify: true
+  jobLabel: ocm-grc-policy-propagator
+  namespaceSelector:
+    matchNames:
+    - multicluster-hub
+  selector:
+    matchLabels:
+      app: grc
+      component: ocm-policy-propagator
+      release: grc
