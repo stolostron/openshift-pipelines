@@ -37,6 +37,12 @@ To run the script do the following -
 make bundles
 ```
 
+To run the script that update CertManager addon do the following - 
+
+```
+make bundles-CM
+```
+
 ## Updating the OSD Addon Bundles
 
 This will generate the new bundles. From here, we must generate a new merge request to the [managed-tenants-bundles](https://gitlab.cee.redhat.com/service/managed-tenants-bundles) repository. 
