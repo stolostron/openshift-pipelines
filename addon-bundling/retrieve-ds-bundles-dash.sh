@@ -75,11 +75,11 @@ for bundle in "${bundles[@]}"; do
     # Step 5: rename folder addon version to dash version
     if [[ "$parent" != "null" ]]; then
         mv $resultsDir bundles/${parent}/${operator}/${versionDash}
+        cp ./servicemonitor/clusterlifecycle-state-metrics-v2.servicemonitor.yaml bundles/${parent}/${operator}/${versionDash}/manifests        
     else
         mv $resultsDir bundles/${operator}/main/${addonDash}
+        cp ./servicemonitor/ocm-grc-policy-propagator-metrics.servicemonitor.yaml bundles/${operator}/main/${addonDash}/manifests
     fi
 
     echo ""
 done
-
-overlayServiceMonitor
