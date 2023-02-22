@@ -16,6 +16,12 @@ overrideVersionDash() {
     _VALUE="$operator.v${_versionDash}" yq eval -i '.metadata.name = strenv(_VALUE)' ${_resultsDir}/manifests/${_csvName}
     _VALUE=$_versionDash yq eval -i '.spec.version = strenv(_VALUE)' ${_resultsDir}/manifests/${_csvName}
 
+    # Step 3.1: Comment out any "replaces:" lines
+    sed -e '/replaces/ s/^#*/#/' -i.bak ${_resultsDir}/manifests/${_csvName}
+    if [ -f ${_resultsDir}/manifests/${_csvName}.bak ]; then
+        rm -rf ${_resultsDir}/manifests/${_csvName}.bak
+    fi
+
     # Step 4: Rename the csv file dash version
     mv ${_resultsDir}/manifests/${_csvName} ${_resultsDir}/manifests/${operator}.v${_versionDash}.clusterserviceversion.yaml
 }
@@ -49,6 +55,7 @@ for bundle in "${bundles[@]}"; do
     parent=$(echo "$bundle" | yq e '.parent' -)
     csvNameOverride=$(echo "$bundle" | yq e '.csvNameOverride' -)
     dash=$(echo "$bundle" | yq e '.dash' -)
+    addon=$(echo "$bundle" | yq e '.addon' -)
 
     if [[ "$parent" != "null" ]]; then
         resultsDir="bundles/${parent}/${operator}/${version}"
@@ -67,7 +74,7 @@ for bundle in "${bundles[@]}"; do
     fixCSVs $resultsDir $csvName
 
     export versionDash=$version-$dash
-    export addon="3.7.0"
+    export addon=$addon
     export addonDash=$addon-$dash
 
     overrideVersionDash $resultsDir $versionDash $csvName
@@ -75,7 +82,7 @@ for bundle in "${bundles[@]}"; do
     # Step 5: rename folder addon version to dash version
     if [[ "$parent" != "null" ]]; then
         mv $resultsDir bundles/${parent}/${operator}/${versionDash}
-        cp ./servicemonitor/clusterlifecycle-state-metrics-v2.servicemonitor.yaml bundles/${parent}/${operator}/${versionDash}/manifests        
+        cp ./servicemonitor/clusterlifecycle-state-metrics-v2.servicemonitor.yaml bundles/${parent}/${operator}/${versionDash}/manifests
     else
         mv $resultsDir bundles/${operator}/main/${addonDash}
         cp ./servicemonitor/ocm-grc-policy-propagator-metrics.servicemonitor.yaml bundles/${operator}/main/${addonDash}/manifests
