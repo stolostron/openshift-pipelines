@@ -9,4 +9,4 @@ bundles-CM:
 
 update-config:
 	pip install -r requirements.txt
-	python update-config.py
+	# python update-config.py
