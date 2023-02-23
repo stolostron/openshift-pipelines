@@ -6,7 +6,7 @@ extractBundlesFromImage () {
     _resultsDir=$2
 
     echo "== Extracting bundles from image ${_image} =="
-    ${_DOCKER_OR_PODMAN} pull --platform linux/x86_64 "$image"
+    ${_DOCKER_OR_PODMAN} pull --platform linux/x86_64 --tls-verify false "$image"
     ${_DOCKER_OR_PODMAN} save "$image" --output temp.tar
     mkdir -p temp
     tar -xf temp.tar -C temp/
