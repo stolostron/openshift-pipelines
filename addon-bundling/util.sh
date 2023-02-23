@@ -7,15 +7,7 @@ extractBundlesFromImage () {
 
     echo "== Extracting bundles from image ${_image} =="
 
-    if [[ $_DOCKER_OR_PODMAN == "podman" ]]; then
-    cat > /etc/containers/registries.conf.d/myregistry.conf <<EOF
-[[registry]]
-location = "registry-proxy.engineering.redhat.com"
-insecure = true
-EOF
-    fi
-
-    ${_DOCKER_OR_PODMAN} pull --platform linux/x86_64 --tls-verify false "$image"
+    ${_DOCKER_OR_PODMAN} pull --tls-verify=false --platform linux/x86_64 "$image"
     ${_DOCKER_OR_PODMAN} save "$image" --output temp.tar
     mkdir -p temp
     tar -xf temp.tar -C temp/
