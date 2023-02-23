@@ -1,12 +1,12 @@
 bundles:
 - addonChannel: beta
-  image: quay.io/acm-d/acm-operator-bundle:v2.7.1-10
+  image: registry-proxy.engineering.redhat.com/rh-osbs/rhacm2-acm-operator-bundle:v2.7.1-11
   dash: 1
   operator: advanced-cluster-management
   version: 2.7.1
   addon: 3.7.1
 - addonChannel: beta
-  image: quay.io/acm-d/mce-operator-bundle:v2.2.1-9
+  image: registry-proxy.engineering.redhat.com/rh-osbs/multicluster-engine-mce-operator-bundle:v2.2.1-9
   dash: 1
   operator: multicluster-engine
   parent: advanced-cluster-management
