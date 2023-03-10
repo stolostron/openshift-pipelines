@@ -1,5 +1,5 @@
 bundles:
 - addonChannel: beta
-  image: registry-proxy.engineering.redhat.com/rh-osbs/cert-manager-cert-manager-operator-bundle:v1.10.2-1
+  image: registry-proxy.engineering.redhat.com/rh-osbs/cert-manager-cert-manager-operator-bundle:v1.10.2-20
   operator: cert-manager-operator
-  version: 1.10.2-1
+  version: 1.10.2-20
