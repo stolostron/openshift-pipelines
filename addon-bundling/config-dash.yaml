@@ -1,13 +1,13 @@
 bundles:
 - addonChannel: beta
-  image: registry-proxy.engineering.redhat.com/rh-osbs/rhacm2-acm-operator-bundle:v2.7.3-4
-  dash: 4
+  image: registry-proxy.engineering.redhat.com/rh-osbs/rhacm2-acm-operator-bundle:v2.7.3-19
+  dash: 19
   operator: advanced-cluster-management
   version: 2.7.3
   addon: 3.7.3
 - addonChannel: beta
-  image: registry-proxy.engineering.redhat.com/rh-osbs/multicluster-engine-mce-operator-bundle:v2.2.3-5
-  dash: 4
+  image: registry-proxy.engineering.redhat.com/rh-osbs/multicluster-engine-mce-operator-bundle:v2.2.3-21
+  dash: 19
   operator: multicluster-engine
   parent: advanced-cluster-management
   version: 2.2.3
