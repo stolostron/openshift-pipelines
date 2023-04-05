@@ -11,7 +11,7 @@ overrideCertManagerMetadata () {
 
     _OPERATOR=$_operator yq eval -i '.annotations."operators.operatorframework.io.bundle.package.v1" = env(_OPERATOR)' ${_resultsDir}/metadata/annotations.yaml
     _CHANNEL=$_channel yq eval -i '.annotations."operators.operatorframework.io.bundle.channels.v1" = env(_CHANNEL)' ${_resultsDir}/metadata/annotations.yaml
-    _CHANNEL=$_channel yq eval -i '.annotations."operators.operatorframework.io.bundle.channel.default.v1" += env(_CHANNEL)' ${_resultsDir}/metadata/annotations.yaml
+    _CHANNEL=$_channel yq eval -i '.annotations."operators.operatorframework.io.bundle.channel.default.v1" = env(_CHANNEL)' ${_resultsDir}/metadata/annotations.yaml
 }
 
 overrideCertManagerVersion() {
